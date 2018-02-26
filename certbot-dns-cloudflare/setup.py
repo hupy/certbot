@@ -4,7 +4,7 @@ from setuptools import setup
 from setuptools import find_packages
 
 
-version = '0.16.0.dev0'
+version = '0.22.0.dev0'
 
 # Please update tox.ini when modifying dependency version requirements
 install_requires = [
@@ -12,9 +12,7 @@ install_requires = [
     'certbot=={0}'.format(version),
     'cloudflare>=1.5.1',
     'mock',
-    # For pkg_resources. >=1.0 so pip resolves it to a version cryptography
-    # will tolerate; see #2599:
-    'setuptools>=1.0',
+    'setuptools',
     'zope.interface',
 ]
 

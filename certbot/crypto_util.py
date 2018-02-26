@@ -16,7 +16,6 @@ from cryptography.hazmat.backends import default_backend
 from cryptography import x509
 
 from acme import crypto_util as acme_crypto_util
-from acme import jose
 
 from certbot import errors
 from certbot import interfaces
@@ -55,15 +54,11 @@ def init_save_key(key_size, key_dir, keyname="key-certbot.pem"):
     # Save file
     util.make_or_verify_dir(key_dir, 0o700, os.geteuid(),
                             config.strict_permissions)
-    if config.dry_run:
-        key_path = None
-        logger.debug("Generating key (%d bits), not saving to file", key_size)
-    else:
-        key_f, key_path = util.unique_file(
-            os.path.join(key_dir, keyname), 0o600, "wb")
-        with key_f:
-            key_f.write(key_pem)
-        logger.debug("Generating key (%d bits): %s", key_size, key_path)
+    key_f, key_path = util.unique_file(
+        os.path.join(key_dir, keyname), 0o600, "wb")
+    with key_f:
+        key_f.write(key_pem)
+    logger.debug("Generating key (%d bits): %s", key_size, key_path)
 
     return util.Key(key_path, key_pem)
 
@@ -90,15 +85,11 @@ def init_save_csr(privkey, names, path):
     # Save CSR
     util.make_or_verify_dir(path, 0o755, os.geteuid(),
                                config.strict_permissions)
-    if config.dry_run:
-        csr_filename = None
-        logger.debug("Creating CSR: not saving to file")
-    else:
-        csr_f, csr_filename = util.unique_file(
-            os.path.join(path, "csr-certbot.pem"), 0o644, "wb")
-        with csr_f:
-            csr_f.write(csr_pem)
-        logger.debug("Creating CSR: %s", csr_filename)
+    csr_f, csr_filename = util.unique_file(
+        os.path.join(path, "csr-certbot.pem"), 0o644, "wb")
+    with csr_f:
+        csr_f.write(csr_pem)
+    logger.debug("Creating CSR: %s", csr_filename)
 
     return util.CSR(csr_filename, csr_pem, "pem")
 
@@ -222,7 +213,7 @@ def verify_renewable_cert(renewable_cert):
     """
     verify_renewable_cert_sig(renewable_cert)
     verify_fullchain(renewable_cert)
-    verify_cert_matches_priv_key(renewable_cert)
+    verify_cert_matches_priv_key(renewable_cert.cert, renewable_cert.privkey)
 
 
 def verify_renewable_cert_sig(renewable_cert):
@@ -246,27 +237,24 @@ def verify_renewable_cert_sig(renewable_cert):
         raise errors.Error(error_str)
 
 
-def verify_cert_matches_priv_key(renewable_cert):
+def verify_cert_matches_priv_key(cert_path, key_path):
     """ Verifies that the private key and cert match.
 
-    :param `.storage.RenewableCert` renewable_cert: cert to verify
+    :param str cert_path: path to a cert in PEM format
+    :param str key_path: path to a private key file
 
     :raises errors.Error: If they don't match.
     """
     try:
-        with open(renewable_cert.cert) as cert:
-            cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert.read())
-        with open(renewable_cert.privkey) as privkey:
-            privkey = OpenSSL.crypto.load_privatekey(OpenSSL.crypto.FILETYPE_PEM, privkey.read())
         context = OpenSSL.SSL.Context(OpenSSL.SSL.SSLv23_METHOD)
-        context.use_privatekey(privkey)
-        context.use_certificate(cert)
+        context.use_certificate_file(cert_path)
+        context.use_privatekey_file(key_path)
         context.check_privatekey()
     except (IOError, OpenSSL.SSL.Error) as e:
         error_str = "verifying the cert located at {0} matches the \
                 private key located at {1} has failed. \
-                Details: {2}".format(renewable_cert.cert,
-                        renewable_cert.privkey, e)
+                Details: {2}".format(cert_path,
+                        key_path, e)
         logger.exception(error_str)
         raise errors.Error(error_str)
 
@@ -351,14 +339,8 @@ def _get_names_from_cert_or_req(cert_or_req, load_func, typ):
 
 
 def _get_names_from_loaded_cert_or_req(loaded_cert_or_req):
-    common_name = loaded_cert_or_req.get_subject().CN
     # pylint: disable=protected-access
-    sans = acme_crypto_util._pyopenssl_cert_or_req_san(loaded_cert_or_req)
-
-    if common_name is None:
-        return sans
-    else:
-        return [common_name] + [d for d in sans if d != common_name]
+    return acme_crypto_util._pyopenssl_cert_or_req_all_names(loaded_cert_or_req)
 
 
 def get_names_from_cert(csr, typ=OpenSSL.crypto.FILETYPE_PEM):
@@ -379,21 +361,12 @@ def dump_pyopenssl_chain(chain, filetype=OpenSSL.crypto.FILETYPE_PEM):
     """Dump certificate chain into a bundle.
 
     :param list chain: List of `OpenSSL.crypto.X509` (or wrapped in
-        `acme.jose.ComparableX509`).
+        :class:`josepy.util.ComparableX509`).
 
     """
     # XXX: returns empty string when no chain is available, which
     # shuts up RenewableCert, but might not be the best solution...
-
-    def _dump_cert(cert):
-        if isinstance(cert, jose.ComparableX509):
-            # pylint: disable=protected-access
-            cert = cert.wrapped
-        return OpenSSL.crypto.dump_certificate(filetype, cert)
-
-    # assumes that OpenSSL.crypto.dump_certificate includes ending
-    # newline character
-    return b"".join(_dump_cert(cert) for cert in chain)
+    return acme_crypto_util.dump_pyopenssl_chain(chain, filetype)
 
 
 def notBefore(cert_path):
@@ -460,3 +433,16 @@ def sha256sum(filename):
     with open(filename, 'rb') as f:
         sha256.update(f.read())
     return sha256.hexdigest()
+
+def cert_and_chain_from_fullchain(fullchain_pem):
+    """Split fullchain_pem into cert_pem and chain_pem
+
+    :param str fullchain_pem: concatenated cert + chain
+
+    :returns: tuple of string cert_pem and chain_pem
+    :rtype: tuple
+    """
+    cert = OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM,
+        OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, fullchain_pem))
+    chain = fullchain_pem[len(cert):]
+    return (cert, chain)

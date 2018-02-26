@@ -138,7 +138,8 @@ def setup_log_file_handler(config, logfile, fmt):
     log_file_path = os.path.join(config.logs_dir, logfile)
     try:
         handler = logging.handlers.RotatingFileHandler(
-            log_file_path, maxBytes=2 ** 20, backupCount=1000)
+            log_file_path, maxBytes=2 ** 20,
+            backupCount=config.max_log_backups)
     except IOError as error:
         raise errors.Error(util.PERM_ERR_FMT.format(error))
     # rotate on each invocation, rollover only possible when maxBytes
@@ -358,11 +359,11 @@ def post_arg_parse_except_hook(exc_type, exc_value, trace, debug, log_path):
         logger.debug('Exiting abnormally:', exc_info=exc_info)
         if issubclass(exc_type, errors.Error):
             sys.exit(exc_value)
-        print('An unexpected error occurred:', file=sys.stderr)
+        logger.error('An unexpected error occurred:')
         if messages.is_acme_error(exc_value):
             # Remove the ACME error prefix from the exception
             _, _, exc_str = str(exc_value).partition(':: ')
-            print(exc_str, file=sys.stderr)
+            logger.error(exc_str)
         else:
             traceback.print_exception(exc_type, exc_value, None)
     exit_with_log_path(log_path)

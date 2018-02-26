@@ -3,16 +3,14 @@ import sys
 from distutils.core import setup
 from setuptools import find_packages
 
-version = '0.16.0.dev0'
+version = '0.22.0.dev0'
 
 install_requires = [
     'acme=={0}'.format(version),
     'certbot=={0}'.format(version),
     'boto3',
     'mock',
-    # For pkg_resources. >=1.0 so pip resolves it to a version cryptography
-    # will tolerate; see #2599:
-    'setuptools>=1.0',
+    'setuptools',
     'zope.interface',
 ]
 

@@ -46,7 +46,7 @@ PORT=${PORT:-1234}
 
 # subpackages to be released (the way developers think about them)
 SUBPKGS_IN_AUTO_NO_CERTBOT="acme certbot-apache certbot-nginx"
-SUBPKGS_NOT_IN_AUTO="certbot-dns-cloudflare certbot-dns-cloudxns certbot-dns-digitalocean certbot-dns-dnsimple certbot-dns-google certbot-dns-nsone certbot-dns-route53"
+SUBPKGS_NOT_IN_AUTO="certbot-dns-cloudflare certbot-dns-cloudxns certbot-dns-digitalocean certbot-dns-dnsimple certbot-dns-dnsmadeeasy certbot-dns-google certbot-dns-luadns certbot-dns-nsone certbot-dns-rfc2136 certbot-dns-route53"
 
 # subpackages to be released (the way the script thinks about them)
 SUBPKGS_IN_AUTO="certbot $SUBPKGS_IN_AUTO_NO_CERTBOT"
@@ -55,7 +55,7 @@ SUBPKGS="$SUBPKGS_IN_AUTO $SUBPKGS_NOT_IN_AUTO"
 subpkgs_modules="$(echo $SUBPKGS | sed s/-/_/g)"
 # certbot_compatibility_test is not packaged because:
 # - it is not meant to be used by anyone else than Certbot devs
-# - it causes problems when running nosetests - the latter tries to
+# - it causes problems when running pytest - the latter tries to
 #   run everything that matches test*, while there are no unittests
 #   there
 
@@ -166,10 +166,10 @@ fi
 mkdir kgs
 kgs="kgs/$version"
 pip freeze | tee $kgs
-pip install nose
+pip install pytest
 for module in $subpkgs_modules ; do
     echo testing $module
-    nosetests $module
+    pytest --pyargs $module
 done
 cd ~-
 
